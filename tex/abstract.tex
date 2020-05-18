@@ -1,18 +1,17 @@
 % !TEX root = ../thesis.tex
 
 \begin{abstract}
-深度学习相关软、硬技术在近年来飞速发展使得对视频流内容进行连续的智能分析与推理成为了可能。准确、高效的智能视频分析、理解对未来生产生活的方方面面都有着及其重要的应用价值。然而深度学习相关的视频流处理往往有着较为复杂的计算流程，十分依赖不同模块/代码库的协同计算，有一定的开发门槛与上手难度。此外，深度学习方法目前相比仍然需要数倍于传统视觉算法的计算开销，这种高计算开销也导致了深度学习视频处理任务难以在一般硬件上取得较高的帧率。
-% 深度学习技术近年来在计算机视觉领域取得了显著的成就，其相关的计算机视觉算法已经逐步应用到了各类现实应用或生产过程之中。视觉算法性能以及硬件算力的不断提升使得对视频流内容进行连续的智能分析与推理成为了可能。
+深度学习相关软、硬技术在近年来飞速发展使得对视频流内容进行连续的智能分析与推理成为了可能。然而深度学习相关的视频流处理往往是包含了多个视觉算法/神经网络的较为复杂的计算流程，这使得当前深度学习视频流处理任务的部署仍具有一定的开发门槛与难度。此外，深度学习方法目前相比仍然需要数倍于传统视觉算法的计算开销，这种高计算开销也直接导致了深度学习视频处理任务难以在一般硬件上取得较高的帧率。\par
+针对以上问题，我们提出了一个较为通用的针对视频流推理任务的C++编程框架Accel-Video Pipe (AVP)。AVP框架对常用视觉计算库以及神经网络推理引擎进行了整合，为视频流处理的各个模块提供统一的调用接口，从而降低视频流推理任务的开发与维护成本。
+在AVP提供的统一接口的基础上，AVP也对视频流推理任务的C++代码自动生成，以及自动化多线程分配与优化提供了相应的算法支持。得益于对多种神经网络引擎的支持，AVP还实现了对多神经网络模型在CPU，GPU，VPU等设备上的自动优化调度，以提高计算资源整体的利用率。%，进而提升视频流处理的运行帧率。
+测试结果显示AVP的自动优化模块可以为某些视频推理任务提供近一倍的加速。
+%深度学习技术近年来在计算机视觉领域取得了显著的成就，其相关的计算机视觉算法已经逐步应用到了各类现实应用或生产过程之中。视觉算法性能以及硬件算力的不断提升使得对视频流内容进行连续的智能分析与推理成为了可能。
 \end{abstract}
 
 \begin{enabstract}
-  Shanghai Jiao Tong University (SJTU) is a key university in China. SJTU was
-  founded in 1896. It is one of the oldest universities in China. The University
-  has nurtured large numbers of outstanding figures include JIANG Zemin, DING
-  Guangen, QIAN Xuesen, Wu Wenjun, WANG An, etc.
-
-  SJTU has beautiful campuses, Bao Zhaolong Library, Various laboratories. It
-  has been actively involved in international academic exchange programs. It is
-  the center of CERNet in east China region, through computer networks, SJTU has
-  faster and closer connection with the world.
+The fast development of deep learning technology in the area of computer vision has made it possible to do continuous intelligent inference on video streams on customers' normal devices in recent years. 
+%Accurate and efficient AI-based video processing does have the prospect to provide creative applications in our life and production.
+However, deep learning related video processing or inference usually has complex workflow containing multiple vision processing steps or neural network models, which makes it relatively hard to develop and maintain AI-based video processing applications. Besides, compared to traditional computer vision algorithms, deep learning-based usually costs several times more computation time. Such high computation overhead directly affect the final performance of video processing application on metrics like frame rate and processing latency.\par
+Under such background, we propose Accel-Video Pipe (AVP), a general C++ programming framework special for video processing tasks with multiple computation steps. AVP integrate several related computation libraries and expose computation methods from different libraries with unified interfaces, which simplifies the cost of development of video processing applications. Taking advantage of unified framework provided by AVP, we also implemented prototypes for automatic C++ code generation, algorithms for automatically multi-thread optimization and collectively running video processing pipeline on multiple computation device including CPU, GPU and VPU. 
+Test results show that our AVP's optimization can provide almost 1x inference speed improvement compared to un-optimized one.
 \end{enabstract}
