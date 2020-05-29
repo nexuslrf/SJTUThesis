@@ -128,11 +128,16 @@ StreamPacket& getPacket()
 % Processor 的实现与自定义
 \subsection{PipeProcessor的实现与自定义}
 在\ref{ch4:design_proc}中，我们提到了PipeProcessor运行的嵌套关系。所有计算模块都是对PipeProcessor的继承。当一个计算模块要进行数据处理时，首先调用基类PipeProcessor的\texttt{process()}方法，经过输入数据的检查后，\texttt{process}会调用由子类重载的\texttt{run()}方法。在\texttt{run}完成处理后，\texttt{process}方法最后将完成输入数据的释放以及输出数据的转存。接下来我们从PipeProcessor与Stream的连接，具体模块的实现以及模块自定义这三个方面进行讨论。\par
-在AVPipe中，PipeProcessor是通过Stream实现相互连接，最终构成一个整体的视频处理流程图的。在上一小节中，我们已经介绍Stream了具体实现，Stream并不直接保存与其相连的PipeProcessor的信息。为了方便PipeProcessor对Stream中数据包的读写，我们将所有的连接信息都被放在了PipeProcessor中。为了减少对连接信息的保存和操作开销，我们在PipeProcessor中设置了两个包含Stream指针信息的列表\texttt{inStreams}和\texttt{outStreams}。由于连接信息以列表（STL中的vector\footnote{\url{http://www.cplusplus.com/reference/vector/vector/}}）形式保存，这需要我们人为设定其中Stream的保存顺序，这虽然牺牲了部分灵活性，但也为框架的带来了更少的资源开销与额外控制逻辑。这一点也会通过在之后\ref{ch4:auto_codegen}中介绍的自动代码生成功能带来一定程度的规范与改进。\par
+在AVPipe中，PipeProcessor是通过Stream实现相互连接，最终构成一个整体的视频处理流程图的。在上一小节中，我们已经介绍Stream了具体实现，Stream并不直接保存与其相连的PipeProcessor的信息。为了方便PipeProcessor对Stream中数据包的读写，我们将所有的连接信息都被放在了PipeProcessor中。Stream与计算模块的连接是通过PipeProcessor提供的\texttt{bindStream}方法来实现的。为了减少对连接信息的保存和操作开销，我们在PipeProcessor中设置了两个包含Stream指针信息的列表\texttt{inStreams}和\texttt{outStreams}。由于连接信息以列表（STL中的vector\footnote{\url{http://www.cplusplus.com/reference/vector/vector/}}）形式保存，这需要我们人为设定其中Stream的保存顺序，这虽然牺牲了部分灵活性，但也为框架的带来了更少的资源开销与额外控制逻辑。
+% 非同步 连接以后看需求添加
+这一点也会通过在之后\ref{ch4:auto_codegen}中介绍的自动代码生成功能带来一定程度的规范与改进。
+\par
 由于PipeProcessor这一基类已经完成了绝大部分的控制逻辑，基于此实现的具体计算模块只需完成自身参数的初始化并重载基类中的\texttt{run}方法即可。
 计算模块的初始化参数一方面包括在PipeProcessor需要定义的参数如输入输出Stream的数量，计算模块的名称/标签以及数据类型，另一方面也包含运行该计算模块所必要参数如神经网络推理模块需要在初始化导入的模型文件，图像处理模块需要图像目标尺寸等信息。
 \texttt{run}方法有两个引用参数\texttt{in\_data\_list}和\texttt{out\_data\_list}分别用来存放本计算的输入和输出数据包列表。输入数据\texttt{in\_data\_list}是由\texttt{process}从本计算模块连接的所有输入Stream中收集得到的（所得的数据列表需要满足时间戳的一致）。\texttt{run}中的数据操作的实现与写一般的数据处理函数并没有太多区别。\par
-除了直接向AVPipe中添加新的计算模块外，我们还提供了一个模版计算模块\texttt{TemplateProcessor}。有时候视频流处理任务中会出现一些任务特定的，缺少通用性的计算步骤，如与输入内容密切相关的多路选择器，\texttt{TemplateProcessor}的存在方便了用户快速实现特殊计算模块的构建。\texttt{TemplateProcessor}中保存有一个函数指针用来链接在具体任务代码中实现的数据处理函数。\texttt{TemplateProcessor}也可以用来构建复合
+除了直接向AVPipe中添加新的计算模块外，我们还提供了一个模版计算模块\texttt{TemplateProcessor}。有时候视频流处理任务中会出现一些任务特定的，缺少通用性的计算步骤，如与输入内容密切相关的多路选择器，\texttt{TemplateProcessor}的存在方便了用户快速实现特殊计算模块的构建。\texttt{TemplateProcessor}中保存有一个函数指针用来链接在具体任务代码中实现的数据处理函数。
+\texttt{TemplateProcessor}也可以用来构建复合的计算模块，即\texttt{TemplateProcessor}通过引用的形式，在其数据处理流程中直接调用其他模块的\texttt{run}方法，实现复杂的控制逻辑。
+模版计算模块的加入更加凸显了AVPipe框架的灵活性与开放性。
 
 \section{AVPipe的自动化工具}
 
