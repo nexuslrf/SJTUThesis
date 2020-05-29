@@ -25,7 +25,7 @@ Stream是StreamPacket的载体，其主体需要存在一个队列结构来有�
 当数据包完成在PipeProcessor被使用并完成处理时，PipeProcessor会向Stream发送该数据包的释放请求，Stream要能判断该数据包是否被所连接的所有PipeProcessor全部使用，当且仅当所有PipeProcessor都使用了该数据包后，数据包才会从Stream中安全释放。
 有时候，由于数据生产速度会超过数据消费速度，数据包StreamPacket会不断地积累在Stream中而不能及时处理，最终导致大量内存的不必要消耗。为此，Stream还需要提供一个长度或容量的限制，结合阻塞机制来防止数据包的聚积。
 
-\subsection{数据处理单元PipeProcessor}
+\subsection{数据处理单元PipeProcessor}\label{ch4:design_proc}
 PipeProcessor是对视频流处理中各个计算步骤的抽象。PipeProcessor从其连接的输入Stream中拿到数据进行处理，将计算结果放入输出Stream中。PipeProcessor根据根据其输入输出的方式不同，可以分为三类：
 \begin{enumerate}
     \item 数据处理型（Process）：既有输入数据，也有输出数据。视频流处理中的绝大多数多数处理模块的属于这一形式；
@@ -51,17 +51,92 @@ PipeProcessor是对视频流处理中各个计算步骤的抽象。PipeProcessor
 \subsection{Stream中数据的同步与管理}
 在\ref{ch4:design_stream}中，我们介绍了Stream的设计逻辑。在这一部分里，我们主要说明在Stream实现过程中要考虑的关键点。由于Stream本质是存放AVPipe数据包的一个队列，因此Stream直接继承STL（C++标准模版库）中的deque\footnote{\url{http://www.cplusplus.com/reference/deque/deque/}}，并在此基础上提供功能的完善与拓展。\par
 
-对deque拓展的核心在于为其添加多线程的数据同步与阻塞机制，在这里我们使用C++11标准提供的多线程相关函数库来进行实现。 
+对deque拓展的核心在于为其添加多线程的数据同步与阻塞机制，在这里我们使用C++11标准提供的多线程相关函数库来进行实现。具体来说，我们在Stream中定义了一个互斥锁变量（mutex\footnote{\url{https://en.cppreference.com/w/cpp/thread/mutex}}）\texttt{consumeMutex}来实现数据的同步，两个条件变量（condition variable\footnote{\url{https://en.cppreference.com/w/cpp/thread/condition_variable}}）\texttt{loadCond}和\texttt{spaceCond}分别实现对读取空队列和超队列容量存储的阻塞。\par
+
+\texttt{consumeMutex}在数据释放时使用。由于在数据释放时需要判断是否该数据包已经被所有的下游依赖计算节点全部使用（通过判断统计变量\texttt{num\_consume}来实现），可能存在多个线程同时判断该数据包是否完成处理的竞争条件（race condition）。为保证操作的一致性与原子性，需要在数据释放操作上加互斥锁。\par
+
+\texttt{loadCond}和\texttt{spaceCond}都是使用条件变量的机制，当发现当前线程不满足的所设置的判断条件时，将线程进行休眠，直到满足条件后，由其他线程通过条件变量唤醒该线程。比如某处理线程在读取Stream时发现队列为空，这时\texttt{loadCond}会将该线程挂起，直到有新的数据包载入该Stream中时，进行数据包载入的线程就会向\texttt{loadCond}进行告知（\texttt{notify\_one()}），从而唤醒挂起的线程，继续读取数据。\texttt{spaceCond}则是在数据包载入Stream时由于队列容量以达到上线而造成的线程挂起，当队列中有数据包被释放时，该线程又会被唤醒，继续进行数据载入。\par
+
+图\ref{fig:stream_code}展示了Stream对以上问题的实际代码实现，这三个函数由同一个互斥量\texttt{consumeMutex}关联在一起，保证了代码执行的正确性。
+这些对Stream实现中关于多线程的考虑在很多编程语言如Java与Python中都有类似的实现。我们对C++标准库的队列的改造使得它满足了我们在视频流处理中的需求。
+% coupleStream 实现Stream在不同队列中非同步的数据使用？
+% 考虑加点代码片段？
+
+\begin{figure}[!htp]
+  \centering
+  \begin{subfigure}{0.32\textwidth}
+    \centering
+    
+\begin{codeblock}[language=C, basicstyle=\tiny]
+void loadPacket(StreamPacket& packet) 
+{
+    num_consume = numConsume;
+    std::unique_lock<std::mutex> locker(consumeMutex);
+    spaceCond.wait(locker, [&](){
+        return this->size()<=streamCapacity;
+    });
+    push_back(packet);
+    locker.unlock();
+    loadCond.notify_one();
+}
+\end{codeblock}
+
+    \caption{loadPacket}
+  \end{subfigure}
+  \begin{subfigure}{0.32\textwidth}
+    \centering
+    
+\begin{codeblock}[language=C, basicstyle=\tiny]
+void releasePacket()
+{
+    {
+        std::lock_guard<std::mutex> guard(consumeMutex);
+        auto it = begin();
+        it->numConsume--;
+        if(!it->numConsume)
+            pop_front();
+    }
+    spaceCond.notify_one();
+}
+\end{codeblock}
+
+    \caption{releasePacket}
+  \end{subfigure}
+  \begin{subfigure}{0.32\textwidth}
+    \centering
+    
+\begin{codeblock}[language=C, basicstyle=\tiny]
+StreamPacket& getPacket()
+{
+    std::unique_lock<std::mutex> locker(consumeMutex);
+    loadCond.wait(locker, [this](){ 
+        return !this->empty();
+    });
+    locker.unlock();
+    return front();
+}
+\end{codeblock}
+
+    \caption{getPacket}
+  \end{subfigure}
+  
+  \caption{Stream中包含同步与阻塞的三个操作的代码片段}
+  \label{fig:stream_code}
+\end{figure}
 
 % 数据如何在多个计算库运转与整合
-\subsection{多种计算库的支持方式}
 % Processor 的实现与自定义
-\subsection{计算模块的实现与自定义}
-
+\subsection{PipeProcessor的实现与自定义}
+在\ref{ch4:design_proc}中，我们提到了PipeProcessor运行的嵌套关系。所有计算模块都是对PipeProcessor的继承。当一个计算模块要进行数据处理时，首先调用基类PipeProcessor的\texttt{process()}方法，经过输入数据的检查后，\texttt{process}会调用由子类重载的\texttt{run()}方法。在\texttt{run}完成处理后，\texttt{process}方法最后将完成输入数据的释放以及输出数据的转存。接下来我们从PipeProcessor与Stream的连接，具体模块的实现以及模块自定义这三个方面进行讨论。\par
+在AVPipe中，PipeProcessor是通过Stream实现相互连接，最终构成一个整体的视频处理流程图的。在上一小节中，我们已经介绍Stream了具体实现，Stream并不直接保存与其相连的PipeProcessor的信息。为了方便PipeProcessor对Stream中数据包的读写，我们将所有的连接信息都被放在了PipeProcessor中。为了减少对连接信息的保存和操作开销，我们在PipeProcessor中设置了两个包含Stream指针信息的列表\texttt{inStreams}和\texttt{outStreams}。由于连接信息以列表（STL中的vector\footnote{\url{http://www.cplusplus.com/reference/vector/vector/}}）形式保存，这需要我们人为设定其中Stream的保存顺序，这虽然牺牲了部分灵活性，但也为框架的带来了更少的资源开销与额外控制逻辑。这一点也会通过在之后\ref{ch4:auto_codegen}中介绍的自动代码生成功能带来一定程度的规范与改进。\par
+由于PipeProcessor这一基类已经完成了绝大部分的控制逻辑，基于此实现的具体计算模块只需完成自身参数的初始化并重载基类中的\texttt{run}方法即可。
+计算模块的初始化参数一方面包括在PipeProcessor需要定义的参数如输入输出Stream的数量，计算模块的名称/标签以及数据类型，另一方面也包含运行该计算模块所必要参数如神经网络推理模块需要在初始化导入的模型文件，图像处理模块需要图像目标尺寸等信息。
+\texttt{run}方法有两个引用参数\texttt{in\_data\_list}和\texttt{out\_data\_list}分别用来存放本计算的输入和输出数据包列表。输入数据\texttt{in\_data\_list}是由\texttt{process}从本计算模块连接的所有输入Stream中收集得到的（所得的数据列表需要满足时间戳的一致）。\texttt{run}中的数据操作的实现与写一般的数据处理函数并没有太多区别。\par
+除了直接向AVPipe中添加新的计算模块外，我们还提供了一个模版计算模块\texttt{TemplateProcessor}。有时候视频流处理任务中会出现一些任务特定的，缺少通用性的计算步骤，如与输入内容密切相关的多路选择器，\texttt{TemplateProcessor}的存在方便了用户快速实现特殊计算模块的构建。\texttt{TemplateProcessor}中保存有一个函数指针用来链接在具体任务代码中实现的数据处理函数。\texttt{TemplateProcessor}也可以用来构建复合
 
 \section{AVPipe的自动化工具}
 
-\subsection{配置文件驱动的自动代码生成}
+\subsection{配置文件驱动的自动代码生成}\label{ch4:auto_codegen}
 
 \subsection{运行时性能分析驱动的自动多线程优化}
 
