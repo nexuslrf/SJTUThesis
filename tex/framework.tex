@@ -153,9 +153,9 @@ StreamPacket& getPacket()
   includeFile: tensor_compute/det_postprocess.hpp
   label: AVP::REQUIRED
   args:
-    clip_thres: 100.0
-    score_thres: 0.8
-    suppression_thres: 0.3
+    clip_thresh: 100.0
+    score_thresh: 0.8
+    suppression_thresh: 0.3
   inStreams:
   - label: detScoresTensor
   - label: detBoxesTensor
@@ -173,24 +173,95 @@ StreamPacket& getPacket()
 使用配置文件进行代码生成的方式也为以后使用可视化界面直接通过模块选择与拖拽生成任务处理流程提供了可行性。
 % 要不要搞个 算法流程在这里？emmm 算了
 
-\subsection{处理流程可视化与运行时性能分析}
+\subsection{处理流程可视化与运行时性能分析}\label{ch4:viz_prof}
 在\ref{ch4:auto_codegen}中介绍的YAML文件除了可以用于代码的自动生成外，也可用该配置文件可视化整个视频处理流程。此外，可视化工具也可为视频任务的性能分析提供便利。\par
 
 可视化工具同样使用了配置文件中提供的计算模块相互连接的信息，将视频流处理任务所用到的DAG流程图可视化。在这里我们使用Python生成连接图的Graphviz\cite{Gansner00anopen}源文件，然后通过调用Graphviz软件绘制DAG流程图，图\ref{fig:pose_dag}展示了视频姿态检测任务流程的可视化效果。\par
 
 \begin{figure}[tb]
     \centering
-    \includegraphics[width=0.8\textwidth]{figure/AVP_pose_estimation.pdf}
+    \includegraphics[width=0.7\textwidth]{figure/AVP_pose_estimation.pdf}
     \caption[AVPipe可视化DAG流程图的示例]{人体姿态检测视频处理任务在AVPipe框架下处理流程的可视化。不同颜色代表不同的线程。每个节点的上下栏中显示所连接的Stream的标签。节点的中间显示了该计算节点的标签，调用的计算类以及运行时间信息，其中节点的时间信息是通过AVPipe的性能分析工具从Intel i5-8210Y处理器的MacBook Air的预运行结果中获得的。}
     \label{fig:pose_dag}
 \end{figure}
 
 接下来是AVPipe的视频流处理任务的性能分析工具。AVPipe作为一个通用的为终端或边缘设备提供视频流处理任务部署的框架，对处理流程的运行性能有着较高的要求。考虑到视频流处理任务在绝大多数情况下并不会造成计算资源的满负荷运行，并且运行耗时在视频处理任务中更为敏感，我们在AVPipe的性能分析上主要关注在处理流程中各个计算模块的实际计算耗时。为了获得较为准确的各个处理步骤在真实场景下的运行耗时，我们采用预运行（Pre-execution\cite{kim2002design}）的方式进行计算模块运行信息的采集，即通过AVPipe的代码生成工具生成一个专门用于运行测试的只会运行较少帧数（如50或100帧）的，包含运行信息报告的C++任务代码。AVPipe的C++代码库中包含有运行计时相关的代码，这部分代码需要在编译时添加必要的宏定义才会有效，在平常情况下这部分代码是不会进行编译的。代码生成工具会为测试代码用到的CMake配置文件添加必要的宏定义，使得最终的运行结果会输出各计算模块在预运行测试帧上的平均处理耗时。
-图\ref{fig:pose_dag}中也显示了每个计算模块的具体耗时信息，我们可以直观看到CNN推理模块是整个处理流中最为耗时的模块，是视频流处理的瓶颈所在。在下一小节中我们对AVPipe提供的自动优化策略做一介绍。
+图\ref{fig:pose_dag}中也显示了每个计算模块的具体耗时信息，我们可以直观看到CNN推理模块是整个处理流中最为耗时的模块。在下一小节中我们将会对AVPipe提供的自动优化策略做一介绍。
 
 %图\ref{fig:pose_dag}实际上是由多线程优化工具在在完成线程分配后，调用AVPipe的可视化工具得到的。
+% 甘特图 @TODO
 
 \subsection{性能分析驱动的多线程优化}
+利用\ref{ch4:viz_prof}中介绍的性能分析工具，我们可以得到每个计算模块的运行耗时信息，利用这一信息，我们可以较容易地分析得到整个处理流程中的瓶颈在哪些处理步骤上。
+我们采取多线程优化是为了提高计算资源的利用率，加快视频处理的速度。就AVPipe所涉及的优化层面来讲，我们的优化是存在理论上界的，即每帧的处理耗时是不会低于整个处理流程中最耗时计算模块的用时，再深入的模块优化目前并不属于本课题的研究内容。因此，我们的多线程优化也有了一个较明确的目标：尽可能使AVPipe中的视频流任务的处理速度逼近理论上界。在实现策略上，我们通过多级流水线模型，DAG多分支并行等策略尽可能使其他的计算模块在瓶颈模块在运行的同时完成运行，以此达到掩藏非瓶颈模块计算耗时的目的。
+AVPipe的多线程优化工具会依据其启发式算法同时考虑DAG流程图的并行优化与多阶段流水线（Pipeline）并行优化，我们将在本节接下来的讨论中对该算法进行具体介绍。\par
 
+
+
+
+\begin{algorithm}[htb]
+  \caption{多线程优化算法 multi\_threading}
+  \label{algo:opti}
+  \small
+%   \SetAlgoLined
+  \SetNoFillComment
+  \SetKwInOut{Input}{Input}\SetKwInOut{Output}{Output}
+  \Input{task DAG $G=(V,E)$, max \#threads $MT$, heavy time threshold ratio $ratio$}
+  \Output{a thread list of sets of computing components $threads$}
+  
+  \tcc{do the initialization}
+  $tmpThreads := [G.topoOrderings]$ \tcp*{temporary thread list to be selected}
+  $setThreads := []$ \tcp*{a set of the selected, optimized threads}
+  $threads := []$\;
+%   \tcc{get the time threshold}
+  \eIf{$ratio$ is set}  
+    {$thresh = G.totalTime \times ratio$}
+    {$thresh = \max(V.\text{timing})$}
+  
+  \While{|tmpThreads|+|setThreads|<MT {\bf and} \#threads is increasing}{
+    take the most time consuming thread $T_x$ out of $tmpThreads$\;
+    \If{$T_x$.timing < $thresh$}{$setThreads$.append($T_x$);\quad continue\;}
+    select the most time consuming component $v_x$ from $T_x$\;
+    $predecessors :=$ list of predecessor components of $v_x$ in $T_x$ by topo-order\;
+    $successors :=$ list of successor components of $v_x$ in $T_x$ by topo-order\;
+    $unrelated := T_x - predecessors - successors$\;
+    
+    $T_{new} := [v_x]$\;
+    \If{\#threads left $\leq$ 3}{
+        $T_{tmp} := T_{new}$\;
+        \While{$T_{tmp}$.timing < $thresh$}{
+            $T_{new} := T_{tmp}$
+            $V_{dep} := \{v \in T_x | \exists u \in T_{new}, u \text{ has direct connection to } v\}$\; \label{algo:caveat!}
+            % sort $V_{dep}$ according to timing by descending order\;
+            % \For{$v_i \in V_{dep}$}{}
+            $candidate :=$ most time consuming component in $V_{dep}$\;
+            \eIf{candidate is not Null}
+            {
+                $T_{tmp}$.append($candidate$)\; 
+                remove $candidate$ from $predecessors$ or $successors$\;
+            }
+            {
+                break\;
+            }
+        }
+        \tcp{put with $unrelated$ in a proper list}
+        \For{$v_i \in unrelated$}{
+            put $v_i$ into the least time consuming one of \{$predecessors, successors, T_{new}$\}\;
+        }
+        $setThreads$.append($T_{new}$);\quad$tmpThreads$.append($predecessors, successors$)\;
+    }
+    \If{\#threads left = 2}{
+        % \tcp{put with $unrelated$ in a proper list}
+        \For{$v_i \in unrelated$}{
+            put $v_i$ into the least time consuming one of \{$predecessors, successors, T_{new}$\}\;
+        }
+        \tcc{thread combining}
+        $T_{new} := T_{new} + $  less time consuming one between $predecessors$, $successors$\;
+        $T_{side} := $ more time consuming one between $predecessors$, $successors$\;
+        $setThreads$.append($T_{new}$);\quad$tmpThreads$.append($T_{side}$)\;
+    }
+    \tcc{\#threads left = 1 will not happen}
+  }
+\end{algorithm}
 
 % 异构场景下的计算资源分配与调度 看进度加
