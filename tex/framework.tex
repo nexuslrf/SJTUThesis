@@ -35,7 +35,7 @@ PipeProcessor是对视频流处理中各个计算步骤的抽象。PipeProcessor
 流处理中的不同处理模块都是对PipeProcessor的继承与实现。不同模块可以定义自己所需的变量或内存，其实际计算则是通过重载PipeProcessor中的运行接口（\texttt{run}）来实现的，在这个运行接口中只需要定义处理相关的计算即可。对于运行的前的准备，输入数据的检查，时间戳的校对则是由PipeProcessor内不另一个接口来实现的（\texttt{process}），\texttt{process}要能检查输入的有效性。当输入为空数据包时，\texttt{process}在默认情况\footnote{部分输入数据为空时，数据处理逻辑也有可能产生非空的输出。如对检测结果的在检测帧上渲染时，检测结果可能为空。}下会直接返回空的输出数据，而不调用\texttt{run}接口。\texttt{process}对终止数据包也会有类似的处理，不再赘述。总之，在实际使用中，我们不能直接调用\texttt{run}的接口，
 而是通过调用对\texttt{run}再次封装的\texttt{process}接口。这样的设计一方面可以提高代码运行的可靠性，另一方面可以简化不同模块计算流程的实现。
 
-\section{AVPipe的框架实现}
+\section{AVPipe的框架实现}\label{ch4:impl}
 在介绍了AVPipe主体的设计逻辑后，我们将在本小节关注框架实现中存在的需要特别考虑的内容，同样围绕着数据包，数据流以及数据处理单元这三大部分进行展开。
 % 讲 Mat 与 Tensor的 整合
 \subsection{StreamPacket中数据格式的整合}
@@ -67,14 +67,12 @@ PipeProcessor是对视频流处理中各个计算步骤的抽象。PipeProcessor
   \begin{subfigure}{0.32\textwidth}
     \centering
     
-\begin{codeblock}[language=C, basicstyle=\tiny]
+\begin{codeblock}[language=C, basicstyle=\ttfamily\tiny]
 void loadPacket(StreamPacket& packet) 
 {
     num_consume = numConsume;
-    std::unique_lock<std::mutex> locker(consumeMutex);
-    spaceCond.wait(locker, [&](){
-        return this->size()<=streamCapacity;
-    });
+    unique_lock<std::mutex> locker(consumeMutex);
+    spaceCond.wait(locker, [&](){return this->size()<=streamCapacity;});
     push_back(packet);
     locker.unlock();
     loadCond.notify_one();
@@ -86,11 +84,11 @@ void loadPacket(StreamPacket& packet)
   \begin{subfigure}{0.32\textwidth}
     \centering
     
-\begin{codeblock}[language=C, basicstyle=\tiny]
+\begin{codeblock}[language=C, basicstyle=\ttfamily\tiny]
 void releasePacket()
 {
     {
-        std::lock_guard<std::mutex> guard(consumeMutex);
+        lock_guard<std::mutex> guard(consumeMutex);
         auto it = begin();
         it->numConsume--;
         if(!it->numConsume)
@@ -105,10 +103,10 @@ void releasePacket()
   \begin{subfigure}{0.32\textwidth}
     \centering
     
-\begin{codeblock}[language=C, basicstyle=\tiny]
+\begin{codeblock}[language=C, basicstyle=\ttfamily\tiny]
 StreamPacket& getPacket()
 {
-    std::unique_lock<std::mutex> locker(consumeMutex);
+    unique_lock<std::mutex> locker(consumeMutex);
     loadCond.wait(locker, [this](){ 
         return !this->empty();
     });
@@ -140,10 +138,48 @@ StreamPacket& getPacket()
 模版计算模块的加入更加凸显了AVPipe框架的灵活性与开放性。
 
 \section{AVPipe的自动化工具}
-
+为了进一步提高AVPipe框架的可用性以及易用性，我们还在原始AVPipe的C++框架基础上开发了各种自动化的工具为视频流处理任务的代码开发，性能调试以及运行优化带来便利。这部分代码主要由Python开发，但最终会与AVPipe的C++代码进行互动。
 \subsection{配置文件驱动的自动代码生成}\label{ch4:auto_codegen}
+如\ref{ch4:impl}中的介绍，我们完成了AVPipe框架的高度模块化的实现。这种模块化极大便利了开发人员对具体视频处理任务在AVPipe框架下的实现，通过不到50行的C++代码即可实现整个视频处理流程的定义与运行。为了更进一步提升AVPipe框架的易用性，使那些对C++开发并不熟悉的用户也可以快速上手AVPipe，我们又为AVPipe提供了配置文件驱动的自动代码生成的功能，不必书写C++代码，仅通过配置文件定义不同计算模块的连接关系以及其他模块参数，我们的自动化工具就会解析配置文件，并生成一个可运行的视频流处理任务的C++文件。\par
+在配置文件上，我们使用YAML（YAML Ain't Markup Language\footnote{\url{https://yaml.org/}}）格式作为配置定义语法。相比其他配置文件格式，YAML有更好的用户可读性以及语法简洁性。YAML文件在AVPipe中以两种形式存在：(1)计算模块的模版YAML文件，(2)具体视频任务的流程定义YAML文件。模版YAML文件是在定义AVPipe的计算模块时添加的，用来说明该计算模块的默认参数，必须要定义的参数以及需要关联的Stream的数据格式信息，具体形式如图\ref{fig:yaml}所示。任务相关YAML文件是对模版YAML文件的再次补全，设定具体任务的运行参数，并添加\texttt{binding}键值用来描述模块之间的连接关系。\par
 
-\subsection{运行时性能分析驱动的自动多线程优化}
+\begin{figure}[!htp]
+  \centering
+  \begin{subfigure}{0.7\textwidth}
+    \centering
+    
+\begin{codeblock}[language=Ruby, basicstyle=\ttfamily\small]
+- PipeProcessor: NonMaxSuppression
+  includeFile: tensor_compute/det_postprocess.hpp
+  label: AVP::REQUIRED
+  args:
+    clip_thres: 100.0
+    score_thres: 0.8
+    suppression_thres: 0.3
+  inStreams:
+  - label: detScoresTensor
+  - label: detBoxesTensor
+  outStreams:
+  - label: outDetsTensor
+  - label: outLandMarksTensor
+\end{codeblock}
+  \end{subfigure}
+  
+  \caption[AVPipe计算模块的模版YAML文件]{非极大值抑制（NMS）模块在AVPipe中的模版YAML文件。\texttt{AVP::REQUIRED}表示必须由用户定义的参数。}
+  \label{fig:yaml}
+\end{figure}
 
+对于自动代码生成，由于其涉及较多字符串相关的操作，为简化开发，我们因此选择使用较为灵活的Python语言进行实现。自动代码生成脚本会先对任务相关YAML配置文件进行解析，根据配置参数生成模块的初始化的代码。之后脚本会根据配置文件中的\texttt{binding}键值的信息建立模块之间的连接关系。最后，对计算模块按连接关系进行拓扑排序，按拓扑排序结果生成计算模块的运行代码。编译目标C++文件所需的CMake\footnote{\url{https://cmake.org/}}配置文件，也会在AVPipe的自动化脚本中一并生成。
+% 要不要搞个 算法流程在这里？emmm 算了
+
+\subsection{处理流程可视化与运行时性能分析}
+在\ref{ch4:auto_codegen}中介绍的YAML文件除了可以用于代码的自动生成外，也可用该配置文件可视化整个视频处理流程。可视化工具也可为视频任务的性能分析提供便利。\par
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figure/AVP_pose_estimation.pdf}
+    \caption{Caption}
+    \label{fig:my_label}
+\end{figure}
 \subsection{异构场景下的计算资源分配与调度}
 
