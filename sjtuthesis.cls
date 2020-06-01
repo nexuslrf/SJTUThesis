@@ -105,7 +105,8 @@
 \RequirePackage{caption}
 \RequirePackage[list=off]{bicaption}
 \RequirePackage{subcaption}
-\RequirePackage[backend=biber,style=\sjtu@bibstyle]{biblatex}
+\RequirePackage[backend=biber,style=\sjtu@bibstyle,gbpunctin=false,gbpub=false]{biblatex}
+\DefineBibliographyStrings{english}{in={}}
 \RequirePackage[titles]{tocloft}
 \RequirePackage[inline]{enumitem}
 \RequirePackage[perpage, bottom]{footmisc}

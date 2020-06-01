@@ -181,7 +181,7 @@ StreamPacket& getPacket()
 \begin{figure}[tb]
     \centering
     \includegraphics[width=0.7\textwidth]{figure/AVP_pose_estimation.pdf}
-    \caption[AVPipe可视化DAG流程图的示例]{人体姿态检测视频处理任务在AVPipe框架下处理流程的可视化。不同颜色代表不同的线程。每个节点的上下栏中显示所连接的Stream的标签。节点的中间显示了该计算节点的标签，调用的计算类以及运行时间信息，其中节点的时间信息是通过AVPipe的性能分析工具从Intel i5-8210Y处理器的MacBook Air的预运行结果中获得的。}
+    \caption[AVPipe可视化DAG流程图的示例]{人体姿态估计视频处理任务在AVPipe框架下处理流程的可视化。不同颜色代表不同的线程。每个节点的上下栏中显示所连接的Stream的标签。节点的中间显示了该计算节点的标签，调用的计算类以及运行时间信息，其中节点的时间信息是通过AVPipe的性能分析工具从Intel i5-8210Y处理器的MacBook Air的预运行结果中获得的。}
     \label{fig:pose_dag}
 \end{figure}
 
@@ -197,16 +197,11 @@ StreamPacket& getPacket()
 AVPipe的多线程优化工具会依据其启发式算法同时考虑DAG流程图的并行优化与多阶段流水线（Pipeline）并行优化，我们将在本节接下来的讨论中对该算法进行具体介绍。\par
 
 算法\ref{algo:opti}列出了AVPipe所使用的多线程优化算法（auto\_multi\_threading，简称autoMT）的伪代码，我们将在此对算法\ref{algo:opti}做必要的解释于说明。在\ref{ch2:dag_sched}我们已经提过对DAG任务的划分于调度是NP-Complete问题，需要针对具体任务设计相应的启发式算法。在这里我们的autoMT既参考了依据运行时长与拓扑排序的静态节点调度策略，又利用了基于层级聚类方法的DAG划分策略。
-其大体思路是：在满足给定的线程数量限制的情况下，我们不断地从待优化的线程列表中选出最耗时线程，再从最耗时线程中选出最耗时计算模块，判断这些模块的耗时。对于用时大于某一阈值$thresh$的模块，我们会尽可能地将其分配到单独的线程中；对用时小于$thresh$的模块，我们会使该模块不断与其周围邻近有依赖的计算模块进行合并构成一个有一定规模的计算模块集合，再将这些计算模块放入同一线程中。上述算法思路基本体现了一个启发式的贪心策略，由于我们所涉及的数据处理流程图的规模还是较小（多数情况下不超过20个节点），不太会使贪心算法陷入较为复杂的局部解中，因此autoMT贪心策略的有效性是有一定保障的。
+其大体思路是：在满足给定的线程数量限制的情况下，我们不断地从待优化的线程列表中选出最耗时线程，再从最耗时线程中选出最耗时计算模块，判断这些模块的耗时。对于用时大于某一阈值$thresh$的模块，我们会尽可能地将其分配到单独的线程中；对用时小于阈值的模块，我们会使该模块不断与其周围邻近有依赖的计算模块进行合并构成一个有一定规模的计算模块集合，再将这些计算模块放入同一线程中。上述算法思路基本体现了一个启发式的贪心策略，由于我们所涉及的数据处理流程图的规模还是较小（多数情况下不超过20个节点），不太会使贪心算法陷入较为复杂的局部解中，因此autoMT贪心策略的有效性是有一定保障的。
 在了解了优化算法的主体思路后，我们还需要对算法实现的几个关键点结合伪代码\ref{algo:opti}进行讨论：
-\begin{enumerate}[wide]
-    \item max \#threads。我们可以在autoMT算法中设置可以使用的最多线程数量，对多核处理器来说，其能真正同时运行的线程数量的上限取决于处理器核心的个数，一般情况下只需将最大线程数量设置为处理器的核心数即可。需要注意的是，最大线程数量只是为AVPipe视频处理任务可使用线程数规定了上限，优化后实际所用到的线程数也有可能会少于最大可用线程数，因为现有的线程已经可以实现了非瓶颈计算模块的用时掩盖，更多的线程并不会为任务的性能带来提升，反而会引入额外的线程管理开销。
-    \item time threshold ratio。
-    \item 线程邻近依赖节点的定义。
-\end{enumerate}
 
 
-\begin{algorithm}[htb]
+\begin{algorithm}[!tb]
   \caption{多线程优化算法 auto\_multi\_threading}
   \label{algo:opti}
   \small
@@ -217,13 +212,12 @@ AVPipe的多线程优化工具会依据其启发式算法同时考虑DAG流程�
   \Output{a thread list of sets of computing components $threads$}
   
   \tcc{do the initialization}
-  $tmpThreads := [G.topoOrderings]$ \tcp*{temporary thread list to be selected}
+  $tmpThreads := [G.\text{topoOrderings}]$ \tcp*{temporary thread list to be selected}
   $setThreads := []$ \tcp*{a set of the selected, optimized threads}
   $threads := []$\;
 %   \tcc{get the time threshold}
-  \eIf{$ratio$ is set}  
-    {$thresh = G.totalTime \times ratio$}
-    {$thresh = \max(V.\text{timing})$}
+  \lIf{$ratio$ is set}{$thresh = G.totalTime \times ratio$}
+  \lElse{$thresh = \max(V.\text{timing})$}
   
   \While{|tmpThreads|+|setThreads|<MT {\bf and} \#threads is increasing}{
     take the most time consuming thread $T_x$ out of $tmpThreads$\;
@@ -234,24 +228,26 @@ AVPipe的多线程优化工具会依据其启发式算法同时考虑DAG流程�
     $unrelated := T_x - predecessors - successors$\;
     
     $T_{new} := [v_x]$\;
-    \If{\#threads left $\leq$ 3}{
+    \If{\#threads left $\geq$ 3}{
         $T_{tmp} := T_{new}$\;
         \While{$T_{tmp}$.timing < $thresh$}{
             $T_{new} := T_{tmp}$\;
-            $V_{dep} := \{v \in T_x | \exists u \in T_{new}, u \text{ has direct connection to } v\}$\; \label{algo:caveat!}
+            $V_{dep} :=$ nodes having adjacent dependency of $T_{new}$\; \label{algo:caveat!}
+            % \tcp*{adjacent dependency} 
             % sort $V_{dep}$ according to timing by descending order\;
             % \For{$v_i \in V_{dep}$}{}
-            $candidate :=$ most time consuming component in $V_{dep}$\;
-            \eIf{candidate is not Null}
+            $candidate :=$ least time consuming component with sufficient dependency in $V_{dep}$\; \label{algo:partial_dep}
+            \If{candidate is not Null}
             {
                 $T_{tmp}$.append($candidate$)\; 
                 remove $candidate$ from $predecessors$ or $successors$\;
             }
+            \lElse
             {
-                break\;
+                break
             }
         }
-        \tcp{put with $unrelated$ in a proper list}
+        \tcc{put with $unrelated$ in a proper list}
         \For{$v_i \in unrelated$}{
             put $v_i$ into the least time consuming one of \{$predecessors, successors, T_{new}$\}\;
         }
@@ -273,4 +269,44 @@ AVPipe的多线程优化工具会依据其启发式算法同时考虑DAG流程�
   \Return $threads$\;
 \end{algorithm}
 
+
+\begin{enumerate}[wide]
+    \item max \#threads。我们可以在autoMT算法中设置可以使用的最多线程数量，对多核处理器来说，其能真正同时运行的线程数量的上限取决于处理器核心的个数，一般情况下只需将最大线程数量设置为处理器的核心数即可。需要注意的是，最大线程数量只是为AVPipe视频处理任务可使用线程数规定了上限，优化后实际所用到的线程数也有可能会少于最大可用线程数，因为现有的线程已经可以实现了非瓶颈计算模块的用时掩盖，更多的线程并不会为任务的性能带来提升，反而会引入额外的线程管理开销。如图\ref{fig:pose_dag}所示的视频处理任务的线程划分，其设定的最大线程数为4，但最终只需要用到3个线程。
+    
+    \item time threshold。我们可以为所优化的线程设置一个时间阈值（$thresh$），这时间阈值是对每个线程运行耗时的一种期望。在默认情况下，时间阈值被设为了处理流程中最耗时模块的用时，用户也可视具体应用场景同设置一个相对于运行总耗时的比率$ratio$来间接设置时间阈值。和最大线程数一样，优化算法并不会保证输出结果中每个线程的运行时间都小于时间阈值。阈值只是在优化过程中提供一个期望目标，是否能达到这个目标取决于我们的线程数量是否充足，模块间依赖关系是否复杂，不同模块的耗时是否平衡等一系列因素。图\ref{fig:pose_dag}的时间阈值为其最耗时模块CNN的用时80.38ms，由于这一处理任务的耗时集中在CNN的运算上，通过合理分配，最后输出的3个线程的运行耗时均低于时间阈值。
+    
+    \item 线程邻近依赖节点。在算法\ref{algo:opti}的第\ref{algo:caveat!}行，我们计算了当前待优化线程的“邻接依赖”（adjacent dependency）的模块集合。%接下来我们将对这个概念进行说明，并解释这样处理的原因。
+    “邻接依赖”在本算法中是指与线程中任一计算模块有直接依赖关系（包括前趋依赖和后继依赖）的计算模块。在创建新线程时，我们采取的策略是，从一个耗时模块开始，逐步与其周边有依赖关系的模块进行合并。这样的处理方式一方面可保证代码的局部性（locality），减少跨线程的数据操作；另一方面可以保证流水线并行时多阶段的相对独立性，减少线程的依赖阻塞。这里需要特殊说明的是流水线并行的阶段独立性，图\ref{fig:ex_pipeline}给出了一个简单的有局部依赖的多线程流水线示例，C和D属于线程[A,B]的邻接依赖节点，C依赖A的计算结果，D同时依赖B和C的计算结果。如果我们错误地将D加入[A,B]的线程，并且C被分配给了另一个线程，这就会造成了\ref{subfig:timeline}中两个线程相互依赖其局部计算结果的情况，这会降低线程的运行效率，破坏了流水线各阶段单向数据传递的模式。在实现过程中，我们
+   添加了判断逻辑从邻接依赖节点集除了这类局部相互依赖的节点（算法\ref{algo:opti}第\ref{algo:partial_dep}行）。
+\end{enumerate}
+
+\begin{figure}[htp]
+    \centering
+    \begin{subfigure}{0.25\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{figure/ex_dep.pdf}
+    \caption{DAG}
+    \label{subfig:dag}
+    \end{subfigure}
+    \begin{subfigure}{0.7\textwidth}
+    \centering
+    \vspace{60pt}
+    \includegraphics[width=\textwidth]{figure/ex_dep_timeline.pdf}
+    % \vspace{5pt}
+    \caption{Timeline}
+    \label{subfig:timeline}
+    \end{subfigure}
+    \caption[有局部依赖的多线程流水线示例]{有局部依赖的多线程流水线示例。\ref{subfig:dag}[A,B]为当前正在进行合并的线程，D为下一个即将加入该线程的节点，C会被分配至另一个线程。}
+    \label{fig:ex_pipeline}
+\end{figure}
+
+
 % 异构场景下的计算资源分配与调度 看进度加
+
+在获得优化算法的线程列表输出后，这些多线程信息会通过AVPipe的自动代码生成工具最终表现在具体视频处理任务的C++代码中，多线程在AVPipe框架下由C++11标准多线程库进行实现。这种先运行分析，再针对优化，最后代码生成的过程在特定任务代码优化编译过程中是常见的，如在稀疏矩阵计算的加速过程中，运行代码是根据实际输入矩阵的依赖模式优化生成的\cite{cheshmi2018parsy}。
+
+
+\section{本章小结}
+本章介绍了AVPipe框架的主体设计逻辑，实现方式以及自动化工具。为实现整个框架的模块化，我们进行了数据包，数据流，数据处理单元这三个层次的抽象。AVPipe框架下视频流处理应用的开发实际也是围绕着这三者进行的。作为一个通用的编程框架，AVPipe需要考虑到许多细节的实现方式，如数据包格式的选择与整合，数据流在多线程环境下的同步与阻塞。我们的AVPipe在提供开发便利的同时，还可以为视频处理任务提供系统层级的优化，为此我们实现了C++代码自动生成工具，任务运行性能分析工具，提出了针对我们任务场景的启发式自动多线程划分算法。通过AVPipe，我们可以完成视频处理任务代码开发，编译运行，性能优化的全流程。
+我们期望AVPipe编程框架能在实际生产中体现出它的价值。
+% 作为一个工程项目，AVPipe还会在今后提供更为便捷的操作，更丰富的处理模块，更细粒度的模块性能调优。
