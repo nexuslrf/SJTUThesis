@@ -1,46 +1,28 @@
 % !TEX root = ../thesis.tex
 
 \begin{bigabstract}
-  An imperial edict issued in 1896 by Emperor Guangxu, established Nanyang
-  Public School in Shanghai. The normal school, school of foreign studies,
-  middle school and a high school were established. Sheng Xuanhuai, the person
-  responsible for proposing the idea to the emperor, became the first president
-  and is regarded as the founder of the university.
+Artificial Intelligence is absolutely one of the most popular topics in the area of computer science. Recent years have witness the fast development of AI related technologies, especially deep learning technology. Due to its strong feature representation ability, deep learning has gain great success in many important domains such as computer vision, natural language processing and speech recognition, of which computer vision (CV) is the most successful one using deep learning. By using convolutional neural network (CNN), deep learning method has achieved great performance in many visual perception challenges including classification, object detection, pose estimation, etc. Thus, deep learning based computer vision technology is now widely used in production, which can provide convenience to real industry and our daily life. Intelligent video perception is one of important categories and forms of deep learning-based CV production application. Basically, video perception can be treated as a fixed workflow that continuously processes a specific CV algorithm frame by frame in the video stream. These intelligent video perception tasks are very helpful not only for other advanced AI applications such as autonomous driving and intelligent robotics, but also for providing greater experience for user content creation. 
 
-  During the 1930s, the university gained a reputation of nurturing top
-  engineers. After the foundation of People's Republic, some faculties were
-  transferred to other universities. A significant amount of its faculty were
-  sent in 1956, by the national government, to Xi'an to help build up Xi'an Jiao
-  Tong University in western China. Afterwards, the school was officially
-  renamed Shanghai Jiao Tong University.
+Though intelligent video stream processing can bring many benefits in real applications, it is relatively difficult to build such video processing  pipelines and run it efficiently in users' general computing devices. Firstly, deep learning related video processing tasks usually have complicated processing pipelines containing multiple processing stages related to operations on visual image or high-dimensional tensor. To deploy such pipelines using programming language like C/C++,  you have to write hundreds of or thousands of lines of code, which is pretty hard for those developer without much background knowledge.
 
-  Since the reform and opening up policy in China, SJTU has taken the lead in
-  management reform of institutions for higher education, regaining its vigor
-  and vitality with an unprecedented momentum of growth. SJTU includes five
-  beautiful campuses, Xuhui, Minhang, Luwan Qibao, and Fahua, taking up an area
-  of about 3,225,833 m2. A number of disciplines have been advancing towards the
-  top echelon internationally, and a batch of burgeoning branches of learning
-  have taken an important position domestically.
+Secondly, deep learning, i.e., neural network models usually contain lots of matrix computation which results in more computational resources consumption and more processing time compared to traditional CV methods. Given such characteristics of neural network models, many dedicated software libraries and hardware accelerators are proposed to optimize and accelerate NN inference process. When we build some video processing pipeline for real-time processing, we may need to select some optimized libraries or hardware for speeding up, which further increases the cost of development.
 
-  Today SJTU has 31 schools (departments), 63 undergraduate programs, 250
-  masters-degree programs, 203 Ph.D. programs, 28 post-doctorate programs, and
-  11 state key laboratories and national engineering research centers.
+In order to simplify the development workflow and to optimize the processing speed for intelligent video stream processing tasks, we propose Accel-Video Pipe (AVPipe),  a C++ programming framework aiming to provide better development experience and runtime performance for video stream processing tasks.
 
-  SJTU boasts a large number of famous scientists and professors, including 35
-  academics of the Academy of Sciences and Academy of Engineering, 95 accredited
-  professors and chair professors of the "Cheung Kong Scholars Program" and more
-  than 2,000 professors and associate professors.
+Generally, there are 4 strategies to optimize video stream processing tasks, which are: (a) system level optimization for the overall viedo processing workflow, e.g. taking use of thread parallelism of dependency-free nodes in processing DAG (Directed Acyclic Graph) or multi-stage processing pipeline;  (b) algorithm level optimization for the overall viedo processing workflow, e.g. the continuity of visual motion inside consecutive video frames can be used to propagate processing output of one frame to the next frame thus avoid redundant visual computing; (c) processing component level optimization for viedo processing workflow, especially the optimization for neural network inference component, e.g. model compression, model pruning, model quantization, etc.; (d) hardware level optimization for viedo processing workflow, e.g.  there are various dedicated neural computing acceleration chips like GPU, TPU, VPU, etc. In order to do some generalized optimizations for a random video stream processing task implemented in AVPipe, we have to choose system level optimization as our main optimization strategy. Meanwhile, the other strategies are also supported when doing task-related optimization in AVPipe.
 
-  Its total enrollment of students amounts to 35,929, of which 1,564 are
-  international students. There are 16,802 undergraduates, and 17,563 masters
-  and Ph.D. candidates. After more than a century of operation, Jiao Tong
-  University has inherited the old tradition of "high starting points, solid
-  foundation, strict requirements and extensive practice." Students from SJTU
-  have won top prizes in various competitions, including ACM International
-  Collegiate Programming Contest, International Mathematical Contest in Modeling
-  and Electronics Design Contests. Famous alumni include Jiang Zemin, Lu Dingyi,
-  Ding Guangen, Wang Daohan, Qian Xuesen, Wu Wenjun, Zou Taofen, Mao Yisheng,
-  Cai Er, Huang Yanpei, Shao Lizi, Wang An and many more. More than 200 of the
-  academics of the Chinese Academy of Sciences and Chinese Academy of
-  Engineering are alumni of Jiao Tong University.
+To simplify the development workflow, we do a survey on different kinds of video processing tasks to analyze and summarize some common features for the purpose of framework-level data structure abstraction. In our framework, the whole video processing workflow can be treated as a complex combination of 3 basic structures of AVPipe, which are StreamPacket, Stream and PipeProcessor respectively. StreamPacket contains the raw data to be processed; Stream connects different PipeProcessors and directs StreamPacket to its own consumer; PipeProcessor does the actual data processing. To implement these structures in AVPipe, we give special consideration to (a) the integration of different data types and different data formats (e.g. uint8 Mat, float16 Tensor) in StreamPacket structure; (b) necessary thread synchronization and blocking mechanisms to guarantee the data timestamp consistency and avoid race conditions; (c) support for various neural network inference engines and related  computing devices to give simple and unified interface for all libraries of the same function. 
+
+In addition to the basic definition and implementation of C++ libraries, we provide some automation tools for the further simplification of development. We add an auto code generator to generate the C++ code of a video processing task according to the YAML configuration file formatted by us. Using such configuration file, we can also plot the DAG of the corresponding video processing task. Moreover, a performance profiling tool is implemented to do tracing and timing of different computing component of the whole video processing graph.
+
+To optimize the performance of video processing tasks implemented by our AVPipe, we implement a auto multi-threading optimization tool. There two typical parallelism patterns inside these video processing tasks: parallelism of dependency-free nodes in DAG and parallelism of multi-stage pipeline with one-sided dependency.  Following these two patterns, our multi-threading optimization tool takes use of tasks' runtime profiling information to filter out some high time-consuming PipeProcessors (i.e., bottleneck processing components) from the video processing graph, and try to make these bottleneck processing components to be placed in separated threads so that some processing time can be overlapped thus processing speed will be improved. When it comes to actual implementatio of our optimization, we propose  a heuristic DAG partitioning algorithm to exploit parallelism patterns mentioned above. In this algorithm, we iteratively find high time consuming processing components as threads and do necessary component merging based on the local dependency of these components. There is a theoretic upper bound for our optimization which is the time used by the most time-consuming component, but we may not reach this upper bound for many reasons including number of threads limitation, computation resource contention, complex dependencies among different threads, etc.
+
+We then showcase two video stream processing examples and testify the effectiveness of our multi-threading optimization. The two video processing are pose estimation task and multi-hand tracking task. To show the flexibility of our framework, we also do some CV algorithm level optimization to multi-hand tracking task by adding some user defined computing components and asynchronous Stream connections. Our test results show that our multi-thread optimization can bring performance improvements for all test cases on different devices including CPU, GPU and VPU. The scale of improvements depend on the complexity of the processing tasks. In some cases, our optimization can even provide almost 1x speed up compared to the corresponding vanilla processing tasks. These promising results prove our AVPipe framework's high effectiveness and high extendability.
+
+As an open-source programming framework, AVPipe will keep adding new functions and improving its supports in the future. We really hope our AVPipe framework will play an important role in the future development of video stream processing applications.
+
+
+
+
+
 \end{bigabstract}

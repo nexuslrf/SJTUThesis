@@ -13,7 +13,7 @@
 \begin{figure}[htp]
     \centering
     \includegraphics[width=0.8\textwidth]{figure/avp_base_struct.pdf}
-    \caption{AVPipe基本抽象之间的关系}
+    \bicaption{AVPipe基本抽象之间的关系}{Relationship among different abstraction in AVPipe}
     \label{fig:base_struct}
 \end{figure}
 \subsection{数据包StreamPacket}
@@ -118,7 +118,7 @@ StreamPacket& getPacket()
     \caption{getPacket}
   \end{subfigure}
   
-  \caption{Stream中包含同步与阻塞的三个操作的代码片段}
+  \bicaption{Stream中包含同步与阻塞的三个操作的代码片段}{Code snippet of 3 functions containing synchronization and thread blocking in Stream structure}
   \label{fig:stream_code}
 \end{figure}
 
@@ -165,7 +165,7 @@ StreamPacket& getPacket()
 \end{codeblock}
   \end{subfigure}
   
-  \caption[AVPipe计算模块的模版YAML文件]{非极大值抑制（NMS）模块在AVPipe中的模版YAML文件。\texttt{AVP::REQUIRED}表示必须由用户定义的参数。}
+  \bicaption[AVPipe计算模块的模版YAML文件]{非极大值抑制（NMS）模块在AVPipe中的模版YAML文件。\texttt{AVP::REQUIRED}表示必须由用户定义的参数。}{Snippet of YAML configuration file for NMS module.}
   \label{fig:yaml}
 \end{figure}
 
@@ -181,17 +181,17 @@ StreamPacket& getPacket()
 \begin{figure}[tb]
     \centering
     \includegraphics[width=0.7\textwidth]{figure/AVP_pose_estimation.pdf}
-    \caption[AVPipe可视化DAG流程图的示例]{人体姿态估计视频处理任务在AVPipe框架下处理流程的可视化。不同颜色代表不同的线程。每个节点的上下栏中显示所连接的Stream的标签。节点的中间显示了该计算节点的标签，调用的计算类以及运行时间信息，其中节点的时间信息是通过AVPipe的性能分析工具从Intel i5-8210Y处理器的MacBook Air的预运行结果中获得的。}
+    \bicaption[AVPipe可视化DAG流程图的示例]{人体姿态估计视频处理任务在AVPipe框架下处理流程的可视化。不同颜色代表不同的线程。每个节点的上下栏中显示所连接的Stream的标签。节点的中间显示了该计算节点的标签，调用的计算类以及运行时间信息，其中节点的时间信息是通过AVPipe的性能分析工具从Intel i5-8210Y处理器的MacBook Air的预运行结果中获得的。}{AVPipe's visualization of pose estimation video processing task.}
     \label{fig:pose_dag}
 \end{figure}
 
-接下来是AVPipe的视频流处理任务的性能分析工具。AVPipe作为一个通用的为终端或边缘设备提供视频流处理任务部署的框架，对处理流程的运行性能有着较高的要求。考虑到视频流处理任务在绝大多数情况下并不会造成计算资源的满负荷运行，并且运行耗时在视频处理任务中更为敏感，我们在AVPipe的性能分析上主要关注在处理流程中各个计算模块的实际计算耗时。为了获得较为准确的各个处理步骤在真实场景下的运行耗时，我们采用预运行（Pre-execution\cite{kim2002design}）的方式进行计算模块运行信息的采集，即通过AVPipe的代码生成工具生成一个专门用于运行测试的只会运行较少帧数（如50或100帧）的，包含运行信息报告的C++任务代码。AVPipe的C++代码库中包含有运行计时相关的代码，这部分代码需要在编译时添加必要的宏定义才会有效，在平常情况下这部分代码是不会进行编译的。代码生成工具会为测试代码用到的CMake配置文件添加必要的宏定义，使得最终的运行结果会输出各计算模块在预运行测试帧上的平均处理耗时。
+接下来是AVPipe的视频流处理任务的性能分析工具。AVPipe作为一个通用的为终端或边缘设备提供视频流处理任务部署的框架，对处理流程的运行性能有着较高的要求。考虑到视频流处理任务在绝大多数情况下并不会造成计算资源的满负荷运行，并且运行耗时在视频处理任务中更为敏感，我们在AVPipe的性能分析上主要关注在处理流程中各个计算模块的实际计算耗时。为了获得较为准确的各个处理步骤在真实场景下的运行耗时，我们采用预运行（Pre-execution\cite{kim2002design}）的方式进行计算模块运行信息的采集，即通过AVPipe的代码生成工具生成一个专门用于运行测试的只会运行较少帧数（如50或100帧）的，包含运行信息报告的C++任务代码。AVPipe的C++代码库中包含有运行状态记录与计时的代码，这部分代码需要在编译时添加必要的宏定义才会有效，在平常情况下这部分代码是不会进行编译的。代码生成工具会为测试代码用到的CMake配置文件添加必要的宏定义，使得最终的运行结果会输出各计算模块在预运行测试帧上的平均处理耗时。
 图\ref{fig:pose_dag}中也显示了每个计算模块的具体耗时信息，我们可以直观看到CNN推理模块是整个处理流中最为耗时的模块。在下一小节中我们将会对AVPipe提供的自动优化策略做一介绍。
 
 %图\ref{fig:pose_dag}实际上是由多线程优化工具在在完成线程分配后，调用AVPipe的可视化工具得到的。
 % 甘特图 @TODO
 
-\subsection{性能分析驱动的多线程优化}
+\subsection{性能分析驱动的多线程优化}\label{ch4:autoMT}
 利用\ref{ch4:viz_prof}中介绍的性能分析工具，我们可以得到每个计算模块的运行耗时信息，利用这一信息，我们可以较容易地分析得到整个处理流程中的瓶颈在哪些处理步骤上。
 我们采取多线程优化是为了提高计算资源的利用率，加快视频处理的速度。就AVPipe所涉及的优化层面来讲，我们的优化是存在理论上界的，即每帧的处理耗时是不会低于整个处理流程中最耗时计算模块的用时，再深入的模块优化目前并不属于本课题的研究内容。因此，我们的多线程优化也有了一个较明确的目标：尽可能使AVPipe中的视频流任务的处理速度逼近理论上界。在实现策略上，我们通过多级流水线模型，DAG多分支并行等策略尽可能使其他的计算模块在瓶颈模块在运行的同时完成运行，以此达到掩藏非瓶颈模块计算耗时的目的。
 AVPipe的多线程优化工具会依据其启发式算法同时考虑DAG流程图的并行优化与多阶段流水线（Pipeline）并行优化，我们将在本节接下来的讨论中对该算法进行具体介绍。\par
@@ -296,7 +296,7 @@ AVPipe的多线程优化工具会依据其启发式算法同时考虑DAG流程�
     \caption{Timeline}
     \label{subfig:timeline}
     \end{subfigure}
-    \caption[有局部依赖的多线程流水线示例]{有局部依赖的多线程流水线示例。\ref{subfig:dag}[A,B]为当前正在进行合并的线程，D为下一个即将加入该线程的节点，C会被分配至另一个线程。}
+    \bicaption[有局部依赖的多线程流水线示例]{有局部依赖的多线程流水线示例。\ref{subfig:dag}[A,B]为当前正在进行合并的线程，D为下一个即将加入该线程的节点，C会被分配至另一个线程。}{Example of wrong pipeline partitioning with partial dependency.}
     \label{fig:ex_pipeline}
 \end{figure}
 
