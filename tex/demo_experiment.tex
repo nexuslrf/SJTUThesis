@@ -9,11 +9,30 @@
 % \subsection{视频物体识别任务} % TODO
 
 \subsection{视频人体姿态估计任务}
-人体姿态估计是指识别图像中人体各个关节点的位置。我们基于Sun et al.提出的HRNet（High Resolution Network）\cite{sun2019deep}来构建本任务。HRNet是一个多层级的深度CNN模型，它主要利用了多尺度图像中的空间结构信息来提高检测精度。我们在图\ref{fig:pose_dag}中已经展示了基于HRNet的人体姿态估计的数据处理流程。在这一处理流程中，预处理后的图像数据会被送入HRNet进行推理，其输出是一个包含人体关键点信息的热图（heat map）张量，在后处理过程中，我们会对这个原始输出行进高斯滤波（filter），多通道峰值选择（maxPred）等操作，最终获得一个与输入图片相对应的关键点坐标列表。在进行最后的输出渲染时，我们只显示预测置信度高于于预设阈值的关键点。本任务中各个步骤之间的依赖关系较为简单，
+人体姿态估计是指识别图像中人体各个关节点的位置（如图\ref{subfig:pose_demo}）。我们基于Sun et al.提出的HRNet（High Resolution Network）\cite{sun2019deep}来构建本任务。HRNet是一个多层级的深度CNN模型，它主要利用了多尺度图像中的空间结构信息来提高检测精度。我们在图\ref{fig:pose_dag}中已经展示了基于HRNet的人体姿态估计的数据处理流程。在这一处理流程中，预处理后的图像数据会被送入HRNet进行推理，其输出是一个包含人体关键点信息的热图（heat map）张量，在后处理过程中，我们会对这个原始输出行进高斯滤波（filter），多通道峰值选择（maxPred）等操作，最终获得一个与输入图片相对应的关键点坐标列表。在进行最后的输出渲染时，我们只显示预测置信度高于于预设阈值的关键点。本任务中各个步骤之间的依赖关系较为简单，
 可以将该处理过程分为预处理，神经网络推理，后处理三部分进行多线程流水线优化。这也正是AVPipe自动多线程优化所得的结果（图\ref{fig:pose_dag}）。在神经网络的推理上，我们使用OpenVINO作为HRNet的推理引擎，并且将高斯滤波（filter）看作是单层卷积网络由TorchScript进行实现。方便起见，我们会在后续测试中将该视频处理任务简称为Pose。
 
+\begin{figure}[ptb]
+    \centering
+    \begin{subfigure}{0.4\textwidth}
+    \centering
+    \includegraphics[height=2.2in]{figure/pose_demo.png}
+    \caption{Pose demo}
+    \label{subfig:pose_demo}
+    \end{subfigure}
+    \begin{subfigure}{0.5\textwidth}
+    \centering
+    \includegraphics[height=2.2in]{figure/hand_demo.png}
+    % \vspace{5pt}
+    \caption{Hand demo}
+    \label{subfig:hand_demo}
+    \end{subfigure}
+    \bicaption[测试视频处理任务的运行示例]{AVPipe测试视频处理任务的运行示例。}{The demonstration of AVPipe's testing video processing tasks.}
+    \label{fig:demos}
+\end{figure}
+
 \subsection{视频手部检测与追踪任务}
-与人体姿态估计任务类似，手部检测与追逐是指检测出图像的人手，并对手部的动作进行捕捉。在这里我们采用了Google提出的手部追踪处理流程\cite{mediapipe_hand}。图\ref{fig:hand_dag}展示了该处理流程在AVPipe中的可视化。
+与人体姿态估计任务类似，手部检测与追逐是指检测出图像的人手，并对手部的动作进行捕捉（如图\ref{subfig:hand_demo}）。在这里我们采用了Google提出的手部追踪处理流程\cite{mediapipe_hand}。图\ref{fig:hand_dag}展示了该处理流程在AVPipe中的可视化。
 该处理流程用到了两个CNN模型分别用来做手部检测（PalmCNN）与手部关键点定位（HandCNN）。首先经过预处理的图像数据会送入PalmCNN，PalmCNN是一个基于SSD（Single Shot MultiBox Detector）\cite{liu2016ssd}模型进行简化的检测模型，在获得PalmCNN的原始检测结果后，需要通过尺寸缩放（decodeBoxes），非极大值抑制（NMS）等后处理操作获得可以对应原图的手部检测框。在接下来的处理流程中，手部检测结果会根据其对应的检测框进行旋转，剪裁与缩放，构成一批手部位于图像中心的图片，这批图片会在预处理后送入HandCNN进行关键点定位。最后，关键点信息会通过转换（rotateBack）对应回原图中的坐标。\par
 为了减少处理过程中的冗余计算，加快流程的处理速度，该手部追踪处理流程还在其检测算法流程上进行了针对视频任务的优化。由于人手在连续视频帧中的位移量一般较小，故可以直接使用上一帧关键点检测结果估计人手在下一帧中出现的位置，从而减少PalmCNN的运行频率，它只需要在一些关键帧或检测目标丢失时运行。为实现这部分的处理逻辑，我们在AVPipe中设立了两个自定义的计算模块multiplexer和streamMerger用来选择运行正确的数据源。为了将本帧计算结果传播到下一帧的计算流程中，我们又在处理流程中加入了timeUpdate模块，其产生的数据包会被标记为下一帧的时间戳（图\ref{fig:hand_dag}中的虚线箭头），这点也会在建立计算图时由Stream进行必要的特殊初始化。\ref{fig:hand_dag}也展示了该处理任务在4个线程下的划分，该划分将两个CNN放入了两个不同的线程中，线程间不存在局部依赖，
 每个线程的耗时都不超过最耗时模块的用时，满足我们对该计算图的优化期望。我们使用ONNX Runtime为该处理流程中的两个神经网络提供优化推理。
@@ -32,7 +51,7 @@
 Intel i5-8210Y双核心处理器；对Windows平台，我们使用了一台ThinkPad X1 Carbon，其搭载了Intel i5 10210U四核心处理器。更多核心数量能为多线程运行带来更好的性能，这一点我们也可通过对比这两款设备的处理速度来进行观察。
 为体现AVPipe在多硬件场景下的支持，我们还在后续测试中使用了Intel Neural Compute Stick 2（NCS2）\footnote{\url{https://software.intel.com/content/www/us/en/develop/hardware/neural-compute-stick.html}}这一神经网络加速器，以及Intel的核心显卡进行处理流程的构建。\par
 
-在测试过程中，为了尽可能减少其他因素对运行结果的影响，同一处理任务在不同平台下均使用同一视频文件的前200帧作为输入进行分析。在运行视频处理任务时，我们会尽可能关闭系统中其他正在运行的高资源占用进程。我们在这些视频处理任务中所使用的CNN在未特殊说明的情况下均为全精度（float32）模型，且在进行多线程优化时最大线程数量默认为4.
+在测试过程中，为了尽可能减少其他因素对运行结果的影响，同一处理任务在不同平台下均使用同一视频文件的前200帧作为输入进行分析。在运行视频处理任务时，我们会尽可能关闭系统中其他正在运行的高资源占用进程。我们在这些视频处理任务中所使用的CNN在未特殊说明的情况下均为全精度（float32）模型，且在进行多线程优化时最大线程数量默认为4。附录\ref{app:code}包含了由AVPipe代码自动生成工具生成的测试视频处理任务的C++运行代码。
 
 \section{性能对比分析}
 
@@ -64,7 +83,7 @@ Hand-raw任务在MacBook上经过优化后在速度上有将近40ms的显著提�
 为了进一步确认AVPipe框架下每个线程的运行情况，同时对优化结果和理论上限之间的差距做合理解释，我们对AVPipe框架下的视频处理任务进行了运行追踪。我们在AVPipe的自动化工具中实现了利用AVPipe框架的运行日志信息（使用了glog\footnote{\url{https://github.com/google/glog}}库）来解析生成各线程的运行时间线（timeline）的脚本代码。运行日志数据会被转换为格式化的json文件，供Google Chrome的Trace-viewer\footnote{\url{http://dev.chromium.org/developers/how-tos/trace-event-profiling-tool}}插件生成可视化的timeline。\par
 \begin{figure}[htp]
     \centering
-    \includegraphics[width=\textwidth]{figure/trace.png}
+    \includegraphics[width=\textwidth]{figure/trace_new.png}
     \bicaption[AVPipe视频处理任务的多线程时间线]{AVPipe视频处理任务的多线程时间线在Chrome Trace-viewer中的截图。图中不同横行代表不同线程，不同颜色代表不同的处理模块。该流水线是Hand-raw在MacBook上运行得到的。}{The snapshot of AVPipe task runtime timeline in Chrome Trace-viewer}
     \label{fig:trace}
 \end{figure}

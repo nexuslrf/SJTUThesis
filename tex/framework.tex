@@ -73,6 +73,7 @@ void loadPacket(StreamPacket& packet)
     unique_lock<std::mutex> locker(consumeMutex);
     spaceCond.wait(locker, [&](){return this->size()<=streamCapacity;});
     push_back(packet);
+    
     locker.unlock();
     loadCond.notify_one();
 }
@@ -106,9 +107,11 @@ void releasePacket()
 StreamPacket& getPacket()
 {
     unique_lock<std::mutex> locker(consumeMutex);
+    
     loadCond.wait(locker, [this](){ 
         return !this->empty();
     });
+    
     locker.unlock();
     return front();
 }

@@ -49,6 +49,9 @@
 \listoffigures
 % \listoftables
 \listofalgorithms
+\renewcommand{\lstlistlistingname}{代码列表}
+\lstlistoflistings
+
 
 % 主要符号、缩略词对照表
 % \input{tex/nomenclature}
@@ -63,17 +66,18 @@
 \input{tex/framework}
 \input{tex/demo_experiment}
 \input{tex/summary}
+
+% 参考资料
+\printbibliography[heading=bibintoc]
+
 % 使用英文字母对附录编号
 \appendix
 
 % 附录内容，本科学位论文可以用翻译的文献替代。
-% \input{tex/app_maxwell_equations}
+\input{tex/app_codes}
 
 % 文后无编号部分
 \backmatter
-
-% 参考资料
-\printbibliography[heading=bibintoc]
 
 % 用于盲审的论文需隐去致谢、发表论文、参与项目、申请专利、简历
 
